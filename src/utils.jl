@@ -25,9 +25,9 @@ Hcoupled(c, μ) = ∫(
      ∂ψ̂₂' * ∂ψ̂₂ - μ * ψ̂₂' * ψ̂₂ + c * (ψ̂₂')^2 * ψ̂₂^2 +
      2 * c * (ψ̂₁') * (ψ̂₂') * ψ̂₂ * ψ̂₁), (-Inf, +Inf));
 
-function _find_groundstate(D, H, cT=YangGaudinCMPS; gradtol=1e-10, optalg=LBFGS(80; verbosity=0, maxiter=3000, gradtol=gradtol), state=nothing)
+function _find_groundstate(D, H, cT=YangGaudinCMPS, T=Float64 # scalar type
+    ; gradtol=1e-10, optalg=LBFGS(80; verbosity=0, maxiter=3000, gradtol=gradtol), state=nothing)
     if isnothing(state)
-        T = Float64 # scalar type
         Q₀ = randn(T, (D, D))
         R₀ = randn(T, (D, D))
         state = cT(Constant(Q₀), Constant(R₀))
