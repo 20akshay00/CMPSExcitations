@@ -4,24 +4,10 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 9252bc1e-d438-11f0-052d-d33021303456
+# ╔═╡ 32544fb9-95d3-480b-8ed7-54eb205e6690
 using Plots, FastGaussQuadrature, LinearAlgebra, Roots
 
-# ╔═╡ aa19c38c-4be3-4afb-9afc-78e4dbe9c521
-# A Computational Approach to the Fredholm
-# Integral Equation of the Second Kind
-# https://www.iaeng.org/publication/WCE2008/WCE2008_pp933-937.pdf
-
-# ╔═╡ 8e4f8240-2d65-4e71-b2e0-6ca1ebf2c812
-let
-	N = 10
-	d = rand(N)
-	X = rand(N, N)
-	@assert X * Diagonal(d) ≈ X .* d'
-	@assert Diagonal(d) * X ≈ X .* d
-end
-
-# ╔═╡ 2fd9dc24-d714-4aac-abad-3a0786a068ef
+# ╔═╡ 1e1a5942-b8bc-4ade-b219-b2de435dc052
 begin
 	abstract type FredholmSolver end
 	struct QuadratureSolver <: FredholmSolver
@@ -47,7 +33,79 @@ begin
 	end
 end
 
-# ╔═╡ d3945969-d4cf-4aaf-9c0d-91306a51012b
+# ╔═╡ 157e2c00-d483-11f0-37d0-41ddf59652d5
+begin
+	function kernel_yg(k, q; c=1.0, num_terms=100)
+	    x = k - q
+	    val = 0.0
+	    
+	    # (1/π) * Σ (-1)^(n-1) * (nc) / ((nc)^2 + x^2)
+		# convergence?
+		for n in 1:num_terms
+	        term = (n * c) / ((n * c)^2 + x^2)
+			val -= (-1)^n * term
+	    end
+	    return val / π
+	end
+	
+	# symmetrized version for the solver
+	function kernel_yg_sym(k, q; c=1.0)
+	    # K(k-q) + K(k+q)
+	    return kernel_yg(k, q; c=c) + kernel_yg(k, -q; c=c)
+	end
+	
+	function solve_yang_gaudin(γ; N=100)
+	    c = 1.0
+	    particle_density = c / γ
+	    
+	    solver = QuadratureSolver(gausslegendre(N))
+	    
+	    function residual(Q)
+	        if Q <= 1e-9; return 0.0; end
+	        
+	        rho, xs, ws = solve(
+	            solver, 
+	            (x,y) -> kernel_yg_sym(x, y; c=c),
+	            x -> 1.0/(2π), 
+	            0.0, 
+	            Q
+	        )
+	        return 2 * dot(ws, rho.(xs)) - particle_density
+	    end
+
+	    Q_low = 1e-8 # n ~ 0 => residual(Q) < 0
+	    Q_high = 1.0 # find such that residual(Q) > 0
+	    
+	    # expand upper bound until density is high enough
+	    iter = 0
+	    while residual(Q_high) < 0
+	        Q_high *= 2.0
+	        iter += 1
+	        if iter > 50; error("Could not bracket root (Target density too high?)"); 		end
+		end
+		
+		Q = find_zero(Q -> residual(Q), (Q_low, Q_high), Bisection())
+
+	    rho, xs, ws = solve(
+	        solver, 
+	        (x,y) -> kernel_yg_sym(x, y; c=c),
+	        x -> 1.0/(2π), 
+	        0.0, 
+	        Q
+	    )
+	    
+	    particle_density_final = 2 * dot(ws, rho.(xs))
+	    # energy density E/L = ∫ k^2 ρ(k)
+	    energy_density_final = 2 * dot(ws, (xs.^2) .* rho.(xs))
+	
+	    # dimensionless energy e(γ)
+	    e_dim = energy_density_final / (particle_density_final^3)
+	    
+	    return e_dim, particle_density_final, Q
+	end
+end
+
+# ╔═╡ eb1a63ec-3e39-465a-af9a-17ebefdcea58
 begin
 	# f(x) - λ∫dy kernel(x, y) f(y) = g(x)
 	function solve(solver::QuadratureSolver, kernel, g, yi, yf)
@@ -85,205 +143,60 @@ begin
   	end
 end
 
-# ╔═╡ cbd02fdc-4111-4fc6-acc9-059958bd3d08
-let
-	xlim = [0, 1]
-	f, _, _ = solve(
-		ModifiedQuadratureSolver(gausslegendre(30)), 
-		(x, y) -> -min(x, y),
-		x -> x * MathConstants.e + 1,
-		x -> -(x - x^2/2),
-		xlim...
-	)
-	
-	xs = range(xlim..., 100)
-	println(sum(abs.(f.(xs) .- exp.(xs)))/length(xs))
-	scatter(xs, f, lab = "Numerical")
-	plot!(xs, exp.(xs), lab = "Exact")
-end
-
-# ╔═╡ 1abf76cb-4256-4f6a-873c-4d2333f73a89
-let
-	xlim = [0, 1]
-	f, _, _ = solve(
-		QuadratureSolver(gausslegendre(30)), 
-		(x, y) -> -min(x, y),
-		x -> x * MathConstants.e + 1,
-		xlim...
-	)
-	
-	xs = range(xlim..., 100)
-	println(sum(abs.(f.(xs) .- exp.(xs)))/length(xs))
-	scatter(xs, f, lab = "Numerical")
-	plot!(xs, exp.(xs), lab = "Exact")
-end
-
-# ╔═╡ 37e1f9f9-588a-49ad-8820-10a3536d53b8
-#jacobi, legendre, chebyshev (t,u,v,w), lobatto -> [-1, 1]
-
-# ╔═╡ 87f35899-f6dd-4728-8ef7-b70a65c95dfd
-let
-	xlim = [-1., 1.]
-	f, _, _ = solve(
-		QuadratureSolver(gausslegendre(200)), 
-		(x, y) -> 0.5 * abs(x .- y),
-		x -> exp(x),
-		xlim...
-	)
-	
-	xs = range(xlim..., 20)
-	scatter(xs, f, lab = "Numerical")
-
-	function f_exact(x)
-		e = MathConstants.e
-		c2 = (e^4 + 6 * e^2 + 1)/(8 * (e^2 + 1))
-		c1 = c2 + 1/(1 + e^2)
-		return (c1 + 0.5 * x) * exp(x) + c2 * exp(-x)
-	end
-
-	println(norm(f.(xs) .- f_exact.(xs)))
-	plot!(f_exact, xs, lab = "Exact")
-end
-
-# ╔═╡ 1993226e-c10e-4416-9b5d-de75f7f1e461
-begin
-	# solves f(x) - λ ∫_0^B [K(x,y) + K(x,-y)] f(y) dy = g(x)
-	function solve_ll_distribution(N, c, Q)
-	    # original kernel: 2c / (c^2 + (k-q)^2)
-	    # symmetrized:     K(k, q) + K(k, -q)
-	    Ksym(k, q) = c / π * (1/(c^2 + (k - q)^2) + 1/(c^2 + (k + q)^2))
-	
-		rho, xs, ws = solve(
-			QuadratureSolver(gausslobatto(N)), 
-			Ksym,
-			(x) -> 1. / (2π),
-			0.,
-			Q
-		)
-	    
-	    # density n = 2 * ∫_0^Q ρ(k) dk
-	    particle_density = 2 * dot(ws, rho.(xs))
-	    
-	    # energy E/L = 2 * ∫_0^Q k^2 ρ(k) dk
-	    energy_density = 2 * dot(ws, (xs.^2) .* rho.(xs))
-	    
-	    return rho, particle_density, energy_density
-	end
-	
-	
-	function get_ground_state(γ; N=100)
-	    # fix c=1, vary Q to find n such that c/n = gamma
-	    c = 1.0
-	    particle_density = c / γ
-	    
-	    function residual(Q)
-	        # avoid Q=0 or negative Q
-	        if Q <= 1e-9; return -target_n; end
-	        
-	        _, particle_density_curr, _ = solve_ll_distribution(N, c, Q)
-	        return particle_density_curr - particle_density
-	    end
-
-	
-	    Q_low = 1e-8 # n ~ 0 => residual(Q) < 0
-	    Q_high = 1.0 # find such that residual(Q) > 0
-	    
-	    # expand upper bound until density is high enough
-	    iter = 0
-	    while residual(Q_high) < 0
-	        Q_high *= 2.0
-	        iter += 1
-	        if iter > 50; error("Could not bracket root (Target density too high?)"); 		end
-		end
-	
-	    Q = find_zero(residual, (Q_low, Q_high), Bisection())
-	    
-	    rho, particle_density_final, energy_density_final = solve_ll_distribution(N, c, Q)
-	    
-	    # Dimensionless energy e(γ) = (E/L) / n^3
-	    e_dim = energy_density_final / (particle_density_final^3)
-	    
-	    return rho, e_dim, particle_density_final, Q
-	end
-end
-
-# ╔═╡ dc279c09-599e-4dd8-a0d8-d79c233d8e47
-function get_excitation_spectrum(γ; N=100)
-    rho_gs, _, _, Q = get_ground_state(γ; N=N)
+# ╔═╡ b2b1d4a1-976c-4a0d-b647-684c9be756c1
+function get_spinon_spectrum(γ; N=100)
     c = 1.0
-
-    # solve for dressed Energy: ε(k) - ∫ K ε = k^2 - μ
-    # split ε(k) = ε₀(k) - μ * ε₁(k)
-    Ksym(k, q) = c / π * (1/(c^2 + (k - q)^2) + 1/(c^2 + (k + q)^2))
-    solver = QuadratureSolver(gausslobatto(N))
+    target_n = c / γ
     
-    # solve auxiliary equations: (I - K)ε₀ = k^2  and  (I - K)ε₁ = 1
-    eps0, xs, ws = solve(solver, Ksym, k -> k^2, 0., Q)
-    eps1, _,  _  = solve(solver, Ksym, k -> 1.0, 0., Q)
+    # solve charge ground state (to get Q, n, rho)
+    solver = QuadratureSolver(gausslegendre(N)..., N)
+    get_n(Q) = (Q<1e-9) ? 0.0 : 2 * dot(solve_integral(solver, kernel_yg_sym, x->1/(2π), Q)[3], solve_integral(solver, kernel_yg_sym, x->1/(2π), Q)[4])
+    Q_sol = find_zero(Q -> get_n(Q) - target_n, (1e-6, 100.0), Bisection())
     
-    # enforce ε(Q) = 0 to find μ
-    μ = eps0(Q) / eps1(Q)
-    ε(k) = eps0(k) - μ * eps1(k)
-
-    # dressed Momentum P(k) = k + ∫ θ(k-q)ρ(q)dq
-    # integrate using the existing ground state nodes (ws, xs)
-    θ(x) = 2 * atan(x / c)
-    P(k) = k + dot(ws, (θ.(k .- xs) .+ θ.(k .+ xs)) .* rho_gs.(xs))
+    rho_func, xs, ws, rho_vals = solve_integral(solver, kernel_yg_sym, x->1/(2π), Q_sol)
+    n_final = 2 * dot(ws, rho_vals)
+    k_fermi = (π * n_final) / 2 # spinon Fermi momentum is πn/2
     
-    # dispersion Curves
-    k_fermi = P(Q)
-
-    # grid for half the Fermi sea [0, Q]
-    k_h = range(0, Q, length=N)
-    P_vals = P.(k_h)
-    E_vals = -ε.(k_h) # energy is positive for excitations
-
-    # #1 removing particle from right side (Q -> 0)
-    # Momentum p = P(Q) - P(k)
-    p1 = k_fermi .- P_vals
+    # solve charge dressed energy (to get epsilon_charge)
+    # we need μ to ensure epsilon(Q) = 0
+    eps0, _, _, _ = solve_integral(solver, kernel_yg_sym, x->x^2, Q_sol)
+    eps1, _, _, _ = solve_integral(solver, kernel_yg_sym, x->1.0, Q_sol)
+    μ = eps0(Q_sol) / eps1(Q_sol)
     
-    # #2 removing particle from left side (0 -> -Q)
-    # Momentum p = P(Q) - P(-k) = P(Q) + P(k)
-    p2 = k_fermi .+ P_vals
-
-    # full range 0 -> 2kF
-    p_h = vcat(reverse(p1), p2)
-    e_h = vcat(reverse(E_vals), E_vals)
-
-    # Type II (Particle) branch (k > Q)
-    k_p = range(Q, 3*Q, length=N)
-    p_p = P.(k_p) .- k_fermi
-    e_p = ε.(k_p)
-
-    return p_h, e_h, p_p, e_p, k_fermi
-	
-    # # Type I (Holes): k < Q.  p = P(Q) - P(k),  E = -ε(k)
-    # k_h = range(0, Q, length=N)
-    # p_h, E_h = k_fermi .- P.(k_h), -ε.(k_h)
-
-    # # Type II (Particles): k > Q.  p = P(k) - P(Q),  E = ε(k)
-    # k_p = range(Q, 3*Q, length=N)
-    # p_p, E_p = P.(k_p) .- k_fermi, ε.(k_p)
-
-    # return p_h, E_h, p_p, E_p
+    # evaluate charge dressed energy on the quadrature grid
+    # ε_c(k) = eps0(k) - μ*eps1(k)
+    eps_c_vals = eps0.(xs) .- μ .* eps1.(xs)
+    
+    # calculate spinon dispersion
+    a1(x) = (c / π) / (c^2 + x^2)
+    theta1(x) = 2 * atan(x / c)
+    
+    # scan λ from 0 to infinity
+    # map λ to some grid: L = tan(u) or just log spacing
+    Lambdas = [range(0, 5.0, length=80); range(5.1, 50.0, length=20)]
+    
+    p_spinons = Float64[]
+    e_spinons = Float64[]
+    
+    for L in Lambdas
+        coupling_energy = a1.(L .- xs) .+ a1.(L .+ xs) # symmetric integration -Q to Q
+        coupling_phase  = theta1.(L .- xs) .+ theta1.(L .+ xs)
+        
+        # E_s = - ∫ a1 * epsilon_charge
+        E = -dot(ws, coupling_energy .* eps_c_vals)
+        
+        # P_s = kF - ∫ theta1 * rho_charge
+        P = k_fermi - dot(ws, coupling_phase .* rho_vals)
+        
+        push!(p_spinons, abs(P)) # take abs to fold onto [0, kF]
+        push!(e_spinons, E)
+    end
+    
+    return p_spinons, e_spinons, k_fermi
 end
 
-# ╔═╡ cae2cf42-03ee-4db8-b8a1-31a8d51a7335
-let
-	# TG limit
-	rho, e, n, Q = get_ground_state(10, N=50)
-	println(norm(e - π^2/3), " ", Q)
-	plot(rho, range(-Q, Q, 100), ylim = [0, 4.], lab = "", lw = 4)
-end
-
-# ╔═╡ 7be5d546-88d0-4325-9645-f8d02d1d4864
-let
-	p_h, E_h, p_p, E_p = get_excitation_spectrum(0.1)
-	
-	plot(p_h, E_h, label="Type I (Holes)", lw=2, title="Lieb-Liniger Spectrum (γ=10)")
-	plot!(p_p, E_p, label="Type II (Particles)", lw=2)
-	xlabel!("Momentum p"); ylabel!("Energy ε")
-end
+# ╔═╡ 500cd3f7-a6da-473b-aeaa-5717b7409394
+e_yg, n_yg, Q_yg = solve_yang_gaudin(10)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1521,18 +1434,11 @@ version = "1.9.2+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═9252bc1e-d438-11f0-052d-d33021303456
-# ╠═aa19c38c-4be3-4afb-9afc-78e4dbe9c521
-# ╠═8e4f8240-2d65-4e71-b2e0-6ca1ebf2c812
-# ╠═2fd9dc24-d714-4aac-abad-3a0786a068ef
-# ╠═d3945969-d4cf-4aaf-9c0d-91306a51012b
-# ╠═cbd02fdc-4111-4fc6-acc9-059958bd3d08
-# ╠═1abf76cb-4256-4f6a-873c-4d2333f73a89
-# ╠═37e1f9f9-588a-49ad-8820-10a3536d53b8
-# ╠═87f35899-f6dd-4728-8ef7-b70a65c95dfd
-# ╠═1993226e-c10e-4416-9b5d-de75f7f1e461
-# ╠═dc279c09-599e-4dd8-a0d8-d79c233d8e47
-# ╠═cae2cf42-03ee-4db8-b8a1-31a8d51a7335
-# ╠═7be5d546-88d0-4325-9645-f8d02d1d4864
+# ╠═32544fb9-95d3-480b-8ed7-54eb205e6690
+# ╠═1e1a5942-b8bc-4ade-b219-b2de435dc052
+# ╠═157e2c00-d483-11f0-37d0-41ddf59652d5
+# ╠═eb1a63ec-3e39-465a-af9a-17ebefdcea58
+# ╠═b2b1d4a1-976c-4a0d-b647-684c9be756c1
+# ╠═500cd3f7-a6da-473b-aeaa-5717b7409394
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
