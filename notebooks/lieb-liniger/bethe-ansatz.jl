@@ -113,7 +113,7 @@ let
 	)
 	
 	xs = range(xlim..., 100)
-	println(sum(abs.(f.(xs) .- exp.(xs)))/length(xs))
+	println(sum(abs.(f.(xs) .- exp.(xs)))/length(xs) < 1e-3)
 	scatter(xs, f, lab = "Numerical")
 	plot!(xs, exp.(xs), lab = "Exact")
 end
@@ -125,9 +125,34 @@ end
 let
 	xlim = [-1., 1.]
 	f, _, _ = solve(
-		QuadratureSolver(gausslegendre(200)), 
+		QuadratureSolver(gausslegendre(30)), 
 		(x, y) -> 0.5 * abs(x .- y),
 		x -> exp(x),
+		xlim...
+	)
+	
+	xs = range(xlim..., 20)
+	scatter(xs, f, lab = "Numerical")
+
+	function f_exact(x)
+		e = MathConstants.e
+		c2 = (e^4 + 6 * e^2 + 1)/(8 * (e^2 + 1))
+		c1 = c2 + 1/(1 + e^2)
+		return (c1 + 0.5 * x) * exp(x) + c2 * exp(-x)
+	end
+
+	println(norm(f.(xs) .- f_exact.(xs)))
+	plot!(f_exact, xs, lab = "Exact")
+end
+
+# ╔═╡ d25e6660-c44a-4a19-bbbf-b817bb43ada4
+let
+	xlim = [-1., 1.]
+	f, _, _ = solve(
+		ModifiedQuadratureSolver(gausslegendre(30)), 
+		(x, y) -> 0.5 * abs(x .- y),
+		x -> exp(x),
+		(x) -> 0.5 * (1 + x^2),
 		xlim...
 	)
 	
@@ -330,8 +355,8 @@ end
 # ╔═╡ cae2cf42-03ee-4db8-b8a1-31a8d51a7335
 let
 	# TG limit
-	rho, e, n, Q = get_ground_state(10, N=50)
-	println(norm(e - π^2/3), " ", Q)
+	rho, e, n, Q = get_ground_state(1e8, N=100)
+	println(norm(e - π^2/3), " ", Q, " ", rho(0))
 	plot(rho, range(-Q, Q, 100), ylim = [0, 4.], lab = "", lw = 4)
 end
 
@@ -342,6 +367,27 @@ let
 	plot(p_h, E_h, label="Type I (Holes)", lw=2, title="Lieb-Liniger Spectrum (γ=10)")
 	plot!(p_p, E_p, label="Type II (Particles)", lw=2)
 	xlabel!("Momentum p"); ylabel!("Energy ε")
+end
+
+# ╔═╡ dd266fb8-2d66-4498-a7bc-fe8f6376c1b6
+let
+	c = 5
+	Q = 0.1
+	
+	kernel(k, q) = c / π * (1 / (c^2 + (k - q)^2) + 1 / (c^2 + (k + q)^2))
+	exact(k) = 1 / π * (atan((k + Q) / c) - atan((k - Q) / c))
+	roots, weights = gausslegendre(100)
+
+	yf, yi = Q, 0
+	J = (yf - yi) / 2
+	xs = (roots .* J) .+ (yf + yi) / 2
+	ws = weights .* J
+
+	numerical(k) = dot(ws, kernel.(k, xs))
+
+	ks = range(-Q, Q, 100)
+	plot(numerical, ks, lab = "Numerical")
+	scatter!(exact, ks, lab = "Exact", ms = 2)
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -1589,11 +1635,13 @@ version = "1.9.2+0"
 # ╠═1abf76cb-4256-4f6a-873c-4d2333f73a89
 # ╠═37e1f9f9-588a-49ad-8820-10a3536d53b8
 # ╠═87f35899-f6dd-4728-8ef7-b70a65c95dfd
+# ╠═d25e6660-c44a-4a19-bbbf-b817bb43ada4
 # ╠═1993226e-c10e-4416-9b5d-de75f7f1e461
 # ╠═dc279c09-599e-4dd8-a0d8-d79c233d8e47
 # ╠═f43e514d-f3ce-4eca-bb4f-5289a29142f2
 # ╠═96531a98-4ad8-4e0d-b2a3-b36c085c87f2
 # ╠═cae2cf42-03ee-4db8-b8a1-31a8d51a7335
 # ╠═7be5d546-88d0-4325-9645-f8d02d1d4864
+# ╠═dd266fb8-2d66-4498-a7bc-fe8f6376c1b6
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
